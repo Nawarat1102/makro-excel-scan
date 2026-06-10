@@ -3,20 +3,22 @@ import pandas as pd
 import easyocr
 import numpy as np
 from PIL import Image
+import io
 
-st.title("🛒 ระบบอัปเดตข้อมูล (n1.xlsx)")
+st.title("🛒 ระบบอัปเดตฐานข้อมูล (n1.xlsx)")
 
-# 1. โหลดข้อมูลโดยระบุ header=6 (เพราะหัวตารางอยู่ในบรรทัดที่ 7 ของไฟล์คุณ)
-@st.cache_data
+# 1. โหลดฐานข้อมูลทั้ง 2 ชีต
+FILE_PATH = 'n1.xlsx'
+
 def get_data():
-    # ไฟล์ n1.xlsx ต้องวางอยู่ในโฟลเดอร์เดียวกับ app.py
-    df1 = pd.read_excel('n1.xlsx', sheet_name='Sheet1', header=6)
-    df2 = pd.read_excel('n1.xlsx', sheet_name='Sheet2', header=4)
-    return df1, df2
+    # อ่านไฟล์ Excel โดยแยกชีต
+    sheet1 = pd.read_excel(FILE_PATH, sheet_name='Sheet1')
+    sheet2 = pd.read_excel(FILE_PATH, sheet_name='Sheet2')
+    return sheet1, sheet2
 
 df_s1, df_s2 = get_data()
 
-# 2. ส่วนอ่านรูปภาพ
+# 2. ส่วนอัปโหลดรูปภาพ
 uploaded_img = st.file_uploader("📸 อัปโหลดรูปใบสั่งสินค้า", type=["jpg", "png"])
 
 if uploaded_img:
@@ -24,27 +26,28 @@ if uploaded_img:
     reader = easyocr.Reader(['th', 'en'])
     results = reader.readtext(img)
     
-    # อ่านตัวเลขจากรูป
+    # อัปเดตข้อมูล (บวกยอด)
     for i, (bbox, text, prob) in enumerate(results):
-        # ถ้าเจอตัวเลขที่เป็นลำดับที่ 1-26
-        if text.isdigit() and int(text) <= 26:
+        if text.isdigit() and int(text) <= 26: 
             seq = int(text)
             try:
-                # ลองอ่านจำนวนที่อยู่ข้างๆ
                 qty = results[i+1][1]
                 if qty.isdigit():
                     val = int(qty)
-                    # อัปเดตใน DataFrame
+                    # อัปเดตทั้ง Sheet1 และ Sheet2 ตามลำดับที่
                     df_s1.loc[df_s1['ลำดับที่'] == seq, 'จำนวนที่สั่งซื้อ'] += val
                     df_s2.loc[df_s2['ลำดับที่'] == seq, 'จำนวนที่สั่งซื้อ'] += val
             except: pass
     
-    # 3. บันทึกทับไฟล์เดิม (แยกชีตให้ถูกต้อง)
-    with pd.ExcelWriter('n1.xlsx', engine='openpyxl') as writer:
+    # 3. บันทึกกลับลงไฟล์เดิม (บันทึกทับทั้ง 2 ชีต)
+    with pd.ExcelWriter(FILE_PATH, engine='openpyxl') as writer:
         df_s1.to_excel(writer, sheet_name='Sheet1', index=False)
         df_s2.to_excel(writer, sheet_name='Sheet2', index=False)
     
-    st.success("✅ บันทึกข้อมูลลง n1.xlsx เรียบร้อย!")
+    st.success("✅ อัปเดตข้อมูลสำเร็จทั้ง 2 ชีต!")
 
 # 4. แสดงผล
+st.subheader("ข้อมูล Sheet1")
 st.dataframe(df_s1)
+st.subheader("ข้อมูล Sheet2")
+st.dataframe(df_s2)
