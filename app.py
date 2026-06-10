@@ -3,40 +3,49 @@ import pandas as pd
 import easyocr
 import numpy as np
 from PIL import Image
+import io
 
 st.set_page_config(layout="wide")
-st.title("🛒 Makro Scanner: อ่านรูปภาพลงตาราง Master")
+st.title("🛒 Makro Auto-Fill: ระบบกรอกข้อมูลบิลเข้า Excel")
 
-# โหลด OCR
 @st.cache_resource
 def load_ocr():
     return easyocr.Reader(['th', 'en'])
 
 reader = load_ocr()
 
-# ให้คุณอัปโหลดไฟล์ Master ที่คุณมีอยู่ก่อน
-master_file = st.file_uploader("อัปโหลดไฟล์ Master List ของคุณ (Excel)", type=["xlsx"])
-# อัปโหลดรูปบิลที่ถ่ายมา
-bill_img = st.file_uploader("อัปโหลดรูปถ่ายบิล", type=["jpg", "jpeg", "png"])
+# 1. โหลด Master List (Excel ของคุณ)
+master_file = st.file_uploader("อัปโหลดไฟล์ Master List (Excel)", type=["xlsx"])
+# 2. โหลดรูปบิล
+bill_img = st.file_uploader("อัปโหลดรูปภาพบิล", type=["jpg", "png"])
 
 if master_file and bill_img:
-    df_master = pd.read_excel(master_file)
+    df = pd.read_excel(master_file) # สมมติว่ามีคอลัมน์ 'ลำดับที่'
     
-    # อ่านรูปภาพ
     img = np.array(Image.open(bill_img))
-    results = reader.readtext(img)
-    
-    # ดึงข้อมูล รหัส + จำนวน จากรูป
-    data_map = {}
-    for i, (bbox, text, prob) in enumerate(results):
-        # ถ้าเจอตัวเลข 6 หลัก (รหัส)
-        if len(text) == 6 and text.isdigit():
-            # ให้มองหาเลขจำนวนที่อยู่ใกล้ๆ (สมมติว่าเป็นช่องถัดไป)
-            # ถ้าตำแหน่งผิด คุณบอกผมได้เลยครับ เดี๋ยวผมปรับเลข Index ให้
-            qty = results[i+1][1] if i+1 < len(results) else 0
-            data_map[text] = qty
-            
-    # ตรึงข้อมูลลงตาราง Master
-    df_master['จำนวน'] = df_master['Code'].astype(str).map(data_map).fillna(0)
-    
-    st.dataframe(df_master)
+    with st.spinner("กำลังประมวลผล..."):
+        results = reader.readtext(img)
+        
+        # ค้นหาลำดับที่ และ จำนวน
+        scanned_data = {}
+        for i, (bbox, text, prob) in enumerate(results):
+            # ตรวจสอบว่าเป็นเลขลำดับที่ (สมมติว่าเป็นเลข 1-51)
+            if text.isdigit() and 1 <= int(text) <= 60:
+                seq = int(text)
+                # คาดเดาว่าจำนวนจะอยู่ห่างจากลำดับที่ในแนวนอน
+                # ในขั้นตอนนี้หากได้ผลลัพธ์ไม่ตรง สามารถปรับค่า i+1 ได้ครับ
+                try:
+                    qty = results[i+1][1] 
+                    scanned_data[seq] = qty
+                except:
+                    pass
+        
+        # เติมค่าลงในคอลัมน์ 'จำนวนที่สั่งซื้อ'
+        df['จำนวนที่สั่งซื้อ'] = df['ลำดับที่'].map(scanned_data).fillna(0)
+        
+        st.dataframe(df)
+        
+        # ปุ่มดาวน์โหลด
+        buffer = io.BytesIO()
+        df.to_excel(buffer, index=False)
+        st.download_button("📥 ดาวน์โหลด Excel ที่เติมค่าแล้ว", buffer.getvalue(), "Updated_Order.xlsx")
