@@ -1,38 +1,41 @@
 import streamlit as st
 import pandas as pd
-import io
 
-st.set_page_config(page_title="Makro Order Merger", layout="wide")
-st.title("🛒 ระบบรวมข้อมูลใบสั่งสินค้า Makro")
-st.subheader("อัปโหลดไฟล์ Master (Sheet1) และไฟล์ข้อมูลจำนวน (Sheet2) เพื่อรวมตาราง")
+st.set_page_config(layout="wide")
 
-# 1. อัปโหลดไฟล์ Master (Sheet1)
-file1 = st.file_uploader("อัปโหลดไฟล์ Master (Sheet1)", type=["csv", "xlsx"])
-# 2. อัปโหลดไฟล์จำนวน (Sheet2)
-file2 = st.file_uploader("อัปโหลดไฟล์ที่มีจำนวน (Sheet2)", type=["csv", "xlsx"])
+st.title("📄 ระบบใบสั่งผลิตสินค้า")
 
-if file1 and file2:
+# ส่วนอัปโหลดไฟล์
+uploaded_file = st.file_uploader("อัปโหลดไฟล์ Excel เพื่อแสดงตาราง", type=["xlsx", "csv"])
+
+if uploaded_file:
     # อ่านไฟล์
-    df1 = pd.read_csv(file1) if file1.name.endswith('.csv') else pd.read_excel(file1)
-    df2 = pd.read_csv(file2) if file2.name.endswith('.csv') else pd.read_excel(file2)
+    df = pd.read_excel(uploaded_file) if uploaded_file.name.endswith('.xlsx') else pd.read_csv(uploaded_file)
     
-    # ล้างข้อมูลและจับคู่: ใช้คอลัมน์ 'ลำดับที่' เชื่อมกัน
-    # เราจะดึงคอลัมน์ 'จำนวนที่สั่งซื้อ' จาก df2 ไปแปะใน df1
-    df_merged = df1.copy()
+    # 1. แสดงผลแบบตารางที่ดูสะอาดตา (เหมือนตารางในบิล)
+    st.subheader("ตารางรายการสินค้า")
     
-    # ทำการ Merge ข้อมูล
-    df_merged = df_merged.merge(df2[['ลำดับที่', 'จำนวนที่สั่งซื้อ']], on='ลำดับที่', how='left', suffixes=('', '_new'))
-    
-    # อัปเดตช่องจำนวนให้เป็นค่าใหม่จากไฟล์ที่ 2
-    if 'จำนวนที่สั่งซื้อ_new' in df_merged.columns:
-        df_merged['จำนวนที่สั่งซื้อ'] = df_merged['จำนวนที่สั่งซื้อ_new'].fillna(df_merged['จำนวนที่สั่งซื้อ'])
-        df_merged = df_merged.drop(columns=['จำนวนที่สั่งซื้อ_new'])
-        
-    st.success("✅ รวมข้อมูลสำเร็จ! ดาวน์โหลดได้เลย")
-    st.dataframe(df_merged)
-    
-    # ปุ่มดาวน์โหลด
-    towrite = io.BytesIO()
-    df_merged.to_excel(towrite, index=False)
-    towrite.seek(0)
-    st.download_button("📥 ดาวน์โหลดไฟล์ที่รวมแล้ว", towrite, "Final_Order_List.xlsx")
+    # ใช้ st.dataframe พร้อมไฮไลท์แถว
+    st.dataframe(
+        df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "ลำดับที่": st.column_config.NumberColumn("ลำดับที่", width="small"),
+            "รายการสินค้า": st.column_config.TextColumn("รายการสินค้า", width="large"),
+            "จำนวนที่สั่งซื้อ": st.column_config.NumberColumn("จำนวนที่สั่งซื้อ", format="%d"),
+        }
+    )
+
+    # 2. ส่วนของปุ่มดาวน์โหลด
+    st.download_button(
+        label="📥 ดาวน์โหลดไฟล์ตารางนี้",
+        data=uploaded_file.getvalue(),
+        file_name="Order_List_Output.xlsx"
+    )
+    st.markdown("""
+    <style>
+    thead tr th { background-color: #f0f2f6; border: 1px solid #ddd; }
+    tbody tr td { border: 1px solid #ddd; }
+    </style>
+""", unsafe_allow_html=True)
