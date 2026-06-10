@@ -1,53 +1,42 @@
 import streamlit as st
 import pandas as pd
 import easyocr
-import io
+import numpy as np
+from PIL import Image
 
 st.set_page_config(layout="wide")
-st.title("🛒 Makro Data Processor (Final Version)")
+st.title("🛒 Makro Scanner: อ่านรูปภาพลงตาราง Master")
 
-# โหลด OCR ครั้งเดียว
+# โหลด OCR
 @st.cache_resource
 def load_ocr():
     return easyocr.Reader(['th', 'en'])
 
 reader = load_ocr()
 
-# 1. รับไฟล์ Master List
-master_file = st.file_uploader("อัปโหลดไฟล์ Master Excel (ต้องมีคอลัมน์ 'Code')", type=["xlsx"])
+# ให้คุณอัปโหลดไฟล์ Master ที่คุณมีอยู่ก่อน
+master_file = st.file_uploader("อัปโหลดไฟล์ Master List ของคุณ (Excel)", type=["xlsx"])
+# อัปโหลดรูปบิลที่ถ่ายมา
+bill_img = st.file_uploader("อัปโหลดรูปถ่ายบิล", type=["jpg", "jpeg", "png"])
 
-if master_file:
-    master_df = pd.read_excel(master_file)
-    st.write("Master List ที่โหลดเข้ามา:")
-    st.dataframe(master_df.head())
+if master_file and bill_img:
+    df_master = pd.read_excel(master_file)
     
-    # 2. รับไฟล์ภาพบิล
-    img_file = st.file_uploader("อัปโหลดรูปบิล Makro", type=["jpg", "png"])
+    # อ่านรูปภาพ
+    img = np.array(Image.open(bill_img))
+    results = reader.readtext(img)
     
-    if img_file:
-        with st.spinner("กำลังประมวลผลข้อมูล..."):
-            # สแกนเอา Text ทั้งหมดออกมาเป็น List
-            raw_data = reader.readtext(img_file.getvalue(), detail=0)
+    # ดึงข้อมูล รหัส + จำนวน จากรูป
+    data_map = {}
+    for i, (bbox, text, prob) in enumerate(results):
+        # ถ้าเจอตัวเลข 6 หลัก (รหัส)
+        if len(text) == 6 and text.isdigit():
+            # ให้มองหาเลขจำนวนที่อยู่ใกล้ๆ (สมมติว่าเป็นช่องถัดไป)
+            # ถ้าตำแหน่งผิด คุณบอกผมได้เลยครับ เดี๋ยวผมปรับเลข Index ให้
+            qty = results[i+1][1] if i+1 < len(results) else 0
+            data_map[text] = qty
             
-            # แปลง Text เป็น Dictionary: {รหัส: จำนวน}
-            # เราใช้เงื่อนไข: ถ้าเจอตัวเลข 6 หลัก ให้มองหาตัวเลขที่เป็นจำนวนสั่งซื้อ
-            processed_map = {}
-            for i, text in enumerate(raw_data):
-                if len(text) == 6 and text.isdigit():
-                    # บิล Makro ตัวเลขจำนวนมักจะอยู่ถัดไป 1-2 ลำดับ
-                    try:
-                        qty = float(raw_data[i+1])
-                        processed_map[text] = qty
-                    except:
-                        pass
-            
-            # อัปเดตตาราง Master
-            master_df['จำนวน'] = master_df['Code'].astype(str).map(processed_map).fillna(0)
-            
-            st.success("✨ จับคู่ข้อมูลสำเร็จ!")
-            st.dataframe(master_df)
-            
-            # ปุ่มดาวน์โหลด
-            buffer = io.BytesIO()
-            master_df.to_excel(buffer, index=False)
-            st.download_button("📥 ดาวน์โหลด Excel ที่ใส่จำนวนแล้ว", buffer.getvalue(), "Result_Makro.xlsx")
+    # ตรึงข้อมูลลงตาราง Master
+    df_master['จำนวน'] = df_master['Code'].astype(str).map(data_map).fillna(0)
+    
+    st.dataframe(df_master)
