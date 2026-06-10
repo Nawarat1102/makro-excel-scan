@@ -3,39 +3,53 @@ import pandas as pd
 import io
 
 st.set_page_config(layout="wide")
-st.title("🛒 ระบบรวมไฟล์ใบสั่งสินค้า Makro")
+st.title("🛒 ระบบจัดการฐานข้อมูลใบสั่งสินค้า")
 
-# 1. อัปโหลด Master (Sheet1) และไฟล์สรุปยอด (Sheet2)
-col1, col2 = st.columns(2)
-with col1:
-    file_master = st.file_uploader("อัปโหลดไฟล์ Master (Sheet1)", type=["csv", "xlsx"])
-with col2:
-    file_summary = st.file_uploader("อัปโหลดไฟล์สรุปยอด (Sheet2)", type=["csv", "xlsx"])
+# โหลดฐานข้อมูล Master (ไฟล์ n1.xlsx)
+# หมายเหตุ: คุณต้องอัปโหลดไฟล์ n1.xlsx ไว้ในโฟลเดอร์เดียวกับโค้ด
+FILE_PATH = 'n1.xlsx'
 
-if file_master and file_summary:
-    # อ่านไฟล์ตามประเภท
-    df1 = pd.read_excel(file_master) if file_master.name.endswith('.xlsx') else pd.read_csv(file_master)
-    df2 = pd.read_excel(file_summary) if file_summary.name.endswith('.xlsx') else pd.read_csv(file_summary)
+# โหลดข้อมูล
+try:
+    df_master = pd.read_excel(FILE_PATH, sheet_name='Sheet1')
+except:
+    st.error("ไม่พบไฟล์ n1.xlsx โปรดตรวจสอบว่าอัปโหลดไฟล์ไว้ในระบบแล้ว")
+    st.stop()
+
+# 1. ส่วนรีเซ็ตฐานข้อมูล
+if st.sidebar.button("🔄 รีเซ็ตฐานข้อมูลเป็น 0"):
+    df_master['จำนวนที่สั่งซื้อ'] = 0
+    df_master.to_excel(FILE_PATH, sheet_name='Sheet1', index=False)
+    st.sidebar.success("รีเซ็ตฐานข้อมูลเรียบร้อย!")
+    st.rerun()
+
+# 2. อัปโหลดไฟล์รายการสั่งซื้อใหม่ (หรือจะเปลี่ยนเป็นอ่านจากรูปก็ได้)
+uploaded_file = st.file_uploader("อัปโหลดไฟล์รายการสั่งซื้อ (Sheet2 format)", type=["csv", "xlsx"])
+
+if uploaded_file:
+    df_new = pd.read_excel(uploaded_file) if uploaded_file.name.endswith('.xlsx') else pd.read_csv(uploaded_file)
     
-    # ดึงข้อมูลจาก Sheet2 โดยสมมติว่าคอลัมน์แรกคือ "ลำดับที่" และคอลัมน์ที่ 3 คือ "จำนวน"
-    # คุณอาจต้องปรับเลข index ถ้าไฟล์ของคุณเปลี่ยนคอลัมน์
-    qty_map = dict(zip(df2.iloc[:, 0].astype(str), df2.iloc[:, 2]))
-    
-    # อัปเดตข้อมูลลง Sheet1
-    df1['จำนวนที่สั่งซื้อ'] = df1.iloc[:, 0].astype(str).map(qty_map)
-    
-    # แสดงผล
-    st.subheader("ตารางรายการที่รวมแล้ว:")
-    st.dataframe(df1, use_container_width=True)
-    
-    # ปุ่มดาวน์โหลด
-    buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-        df1.to_excel(writer, index=False)
-    
-    st.download_button(
-        label="📥 ดาวน์โหลดไฟล์ Excel ผลลัพธ์",
-        data=buffer.getvalue(),
-        file_name="Final_Order.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    # แมตช์ข้อมูลจากไฟล์ใหม่มาบวกเพิ่มใน Master
+    # สมมติว่าคอลัมน์แรกคือลำดับที่ คอลัมน์ที่สองคือชื่อ และคอลัมน์ที่สามคือจำนวน
+    for index, row in df_new.iterrows():
+        seq = row[0] # ลำดับที่
+        qty = row[2] # จำนวนที่สั่ง
+        
+        if pd.notnull(qty):
+            mask = df_master['ลำดับที่'] == seq
+            current_qty = df_master.loc[mask, 'จำนวนที่สั่งซื้อ'].fillna(0).values[0]
+            df_master.loc[mask, 'จำนวนที่สั่งซื้อ'] = current_qty + qty
+
+    # บันทึกทับไฟล์เดิม
+    df_master.to_excel(FILE_PATH, sheet_name='Sheet1', index=False)
+    st.success("✅ อัปเดตข้อมูลและบวกยอดในฐานข้อมูลเรียบร้อย!")
+
+# 3. แสดงผลตาราง Master ปัจจุบัน
+st.subheader("ฐานข้อมูลปัจจุบัน (Master List)")
+st.dataframe(df_master, use_container_width=True)
+
+# 4. ปุ่มดาวน์โหลด
+buffer = io.BytesIO()
+df_master.to_excel(buffer, index=False)
+st.download_button("📥 ดาวน์โหลดฐานข้อมูลล่าสุด", buffer.getvalue(), "Master_Database_Updated.xlsx")
     )
