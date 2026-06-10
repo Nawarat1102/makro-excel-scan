@@ -1,41 +1,49 @@
 import streamlit as st
 import pandas as pd
 import easyocr
-import cv2
 import numpy as np
 from PIL import Image
+import io
 
 st.set_page_config(layout="wide")
-st.title("🛒 Makro Pro Scanner: โหมดตรวจจับตาราง")
+st.title("🛒 Makro Excel Generator")
 
 @st.cache_resource
 def load_ocr():
     return easyocr.Reader(['th', 'en'])
 
 reader = load_ocr()
-uploaded_file = st.file_uploader("อัปโหลดรูปบิล Makro", type=["jpg", "png"])
+uploaded_file = st.file_uploader("อัปโหลดรูปบิล", type=["jpg", "png"])
 
 if uploaded_file:
-    # 1. แปลงรูปให้บอทอ่านง่าย (Binarization - ทำให้เข้มขึ้น)
-    img = Image.open(uploaded_file).convert('L') # ปรับเป็นขาวดำ
-    img_np = np.array(img)
-    _, thresh = cv2.threshold(img_np, 150, 255, cv2.THRESH_BINARY)
+    image = Image.open(uploaded_file).convert('RGB')
+    img_np = np.array(image)
     
-    st.image(thresh, caption="ภาพที่ AI มองเห็น (เน้นเส้นตาราง)", use_container_width=True)
-    
-    with st.spinner("กำลังสกัดข้อมูลจากตาราง..."):
-        results = reader.readtext(thresh, detail=0)
+    with st.spinner("กำลังดึงรายการสินค้า..."):
+        # อ่านค่าแบบ Raw text
+        results = reader.readtext(img_np)
         
-        # ค้นหารหัสสินค้าและชื่อสินค้าด้วยการจับคู่ Pattern
-        # บิล Makro: [ชื่อสินค้า] [รหัสสินค้า] [จำนวน]
-        data = []
-        for i in range(len(results)):
-            # ดูว่ามีเลข 6 หลักไหม
-            if len(results[i]) == 6 and results[i].isdigit():
-                # ถ้าเจอเลขรหัส ให้เอาข้อความก่อนหน้าเป็นชื่อสินค้า
-                item_des = results[i-1] if i > 0 else "ไม่ทราบชื่อ"
-                qty = results[i+1] if i+1 < len(results) else "0"
-                data.append({"Item": results[i], "Item des": item_des, "Qty": qty})
+        # กรองเอาเฉพาะตัวเลข 6 หลัก (รหัสสินค้า)
+        extracted_data = []
+        for (bbox, text, prob) in results:
+            if len(text) == 6 and text.isdigit():
+                extracted_data.append({"Item": text, "Qty": 1})
         
-        df = pd.DataFrame(data)
-        st.dataframe(df, use_container_width=True)
+        # สร้าง DataFrame พื้นฐาน
+        df = pd.DataFrame(extracted_data)
+        
+        if not df.empty:
+            st.dataframe(df, use_container_width=True)
+            
+            # ปุ่มโหลด Excel (ตรงนี้จะกลับมาครับ)
+            towrite = io.BytesIO()
+            df.to_excel(towrite, index=False)
+            towrite.seek(0)
+            st.download_button(
+                label="📥 ดาวน์โหลดไฟล์ Excel",
+                data=towrite,
+                file_name="makro_data.xlsx",
+                mime="application/vnd.ms-excel"
+            )
+        else:
+            st.error("ไม่พบรหัสสินค้า 6 หลักในภาพ โปรดเช็คความชัดของรูป")
