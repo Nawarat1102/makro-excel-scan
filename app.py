@@ -1,51 +1,38 @@
 import streamlit as st
 import pandas as pd
-import easyocr
-import numpy as np
-from PIL import Image
 import io
 
-st.set_page_config(layout="wide")
-st.title("🛒 Makro Auto-Fill: ระบบกรอกข้อมูลบิลเข้า Excel")
+st.set_page_config(page_title="Makro Order Merger", layout="wide")
+st.title("🛒 ระบบรวมข้อมูลใบสั่งสินค้า Makro")
+st.subheader("อัปโหลดไฟล์ Master (Sheet1) และไฟล์ข้อมูลจำนวน (Sheet2) เพื่อรวมตาราง")
 
-@st.cache_resource
-def load_ocr():
-    return easyocr.Reader(['th', 'en'])
+# 1. อัปโหลดไฟล์ Master (Sheet1)
+file1 = st.file_uploader("อัปโหลดไฟล์ Master (Sheet1)", type=["csv", "xlsx"])
+# 2. อัปโหลดไฟล์จำนวน (Sheet2)
+file2 = st.file_uploader("อัปโหลดไฟล์ที่มีจำนวน (Sheet2)", type=["csv", "xlsx"])
 
-reader = load_ocr()
-
-# 1. โหลด Master List (Excel ของคุณ)
-master_file = st.file_uploader("อัปโหลดไฟล์ Master List (Excel)", type=["xlsx"])
-# 2. โหลดรูปบิล
-bill_img = st.file_uploader("อัปโหลดรูปภาพบิล", type=["jpg", "png"])
-
-if master_file and bill_img:
-    df = pd.read_excel(master_file) # สมมติว่ามีคอลัมน์ 'ลำดับที่'
+if file1 and file2:
+    # อ่านไฟล์
+    df1 = pd.read_csv(file1) if file1.name.endswith('.csv') else pd.read_excel(file1)
+    df2 = pd.read_csv(file2) if file2.name.endswith('.csv') else pd.read_excel(file2)
     
-    img = np.array(Image.open(bill_img))
-    with st.spinner("กำลังประมวลผล..."):
-        results = reader.readtext(img)
+    # ล้างข้อมูลและจับคู่: ใช้คอลัมน์ 'ลำดับที่' เชื่อมกัน
+    # เราจะดึงคอลัมน์ 'จำนวนที่สั่งซื้อ' จาก df2 ไปแปะใน df1
+    df_merged = df1.copy()
+    
+    # ทำการ Merge ข้อมูล
+    df_merged = df_merged.merge(df2[['ลำดับที่', 'จำนวนที่สั่งซื้อ']], on='ลำดับที่', how='left', suffixes=('', '_new'))
+    
+    # อัปเดตช่องจำนวนให้เป็นค่าใหม่จากไฟล์ที่ 2
+    if 'จำนวนที่สั่งซื้อ_new' in df_merged.columns:
+        df_merged['จำนวนที่สั่งซื้อ'] = df_merged['จำนวนที่สั่งซื้อ_new'].fillna(df_merged['จำนวนที่สั่งซื้อ'])
+        df_merged = df_merged.drop(columns=['จำนวนที่สั่งซื้อ_new'])
         
-        # ค้นหาลำดับที่ และ จำนวน
-        scanned_data = {}
-        for i, (bbox, text, prob) in enumerate(results):
-            # ตรวจสอบว่าเป็นเลขลำดับที่ (สมมติว่าเป็นเลข 1-51)
-            if text.isdigit() and 1 <= int(text) <= 60:
-                seq = int(text)
-                # คาดเดาว่าจำนวนจะอยู่ห่างจากลำดับที่ในแนวนอน
-                # ในขั้นตอนนี้หากได้ผลลัพธ์ไม่ตรง สามารถปรับค่า i+1 ได้ครับ
-                try:
-                    qty = results[i+1][1] 
-                    scanned_data[seq] = qty
-                except:
-                    pass
-        
-        # เติมค่าลงในคอลัมน์ 'จำนวนที่สั่งซื้อ'
-        df['จำนวนที่สั่งซื้อ'] = df['ลำดับที่'].map(scanned_data).fillna(0)
-        
-        st.dataframe(df)
-        
-        # ปุ่มดาวน์โหลด
-        buffer = io.BytesIO()
-        df.to_excel(buffer, index=False)
-        st.download_button("📥 ดาวน์โหลด Excel ที่เติมค่าแล้ว", buffer.getvalue(), "Updated_Order.xlsx")
+    st.success("✅ รวมข้อมูลสำเร็จ! ดาวน์โหลดได้เลย")
+    st.dataframe(df_merged)
+    
+    # ปุ่มดาวน์โหลด
+    towrite = io.BytesIO()
+    df_merged.to_excel(towrite, index=False)
+    towrite.seek(0)
+    st.download_button("📥 ดาวน์โหลดไฟล์ที่รวมแล้ว", towrite, "Final_Order_List.xlsx")
