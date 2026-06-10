@@ -1,46 +1,41 @@
 import streamlit as st
 import pandas as pd
-import easyocr
-import numpy as np
-from PIL import Image
 import io
 
-# 1. ข้อมูล Master List ที่ฝังไว้ในโค้ดเลย (ไม่ต้องอัปโหลดไฟล์เพิ่ม)
-master_data = {
-    1: "หน้ากากหมู", 2: "สันในหมู", 3: "สันนอกหมู", 4: "สะโพกหมู", 
-    5: "หัวไหล่หมู", 6: "สันคอหมูบั้ง", 7: "สามชั้นหมู", 12: "ตับหมู", 
-    13: "กระเพาะหมู", 16: "ไส้ตันหมูเล็ก" # ใส่ให้ครบทุกรายการตามตารางคุณ
-}
+st.set_page_config(layout="wide")
+st.title("🛒 ระบบรวมไฟล์ใบสั่งสินค้า Makro")
 
-st.title("🛒 อัปโหลดรูปบิลเพื่อรับไฟล์ Excel")
+# 1. อัปโหลด Master (Sheet1) และไฟล์สรุปยอด (Sheet2)
+col1, col2 = st.columns(2)
+with col1:
+    file_master = st.file_uploader("อัปโหลดไฟล์ Master (Sheet1)", type=["csv", "xlsx"])
+with col2:
+    file_summary = st.file_uploader("อัปโหลดไฟล์สรุปยอด (Sheet2)", type=["csv", "xlsx"])
 
-uploaded_img = st.file_uploader("อัปโหลดรูปใบสั่งสินค้า", type=["jpg", "png"])
-
-if uploaded_img:
-    img = np.array(Image.open(uploaded_img))
-    reader = easyocr.Reader(['th', 'en'])
-    results = reader.readtext(img)
+if file_master and file_summary:
+    # อ่านไฟล์ตามประเภท
+    df1 = pd.read_excel(file_master) if file_master.name.endswith('.xlsx') else pd.read_csv(file_master)
+    df2 = pd.read_excel(file_summary) if file_summary.name.endswith('.xlsx') else pd.read_csv(file_summary)
     
-    # ดึงข้อมูลจากรูป
-    found_data = {}
-    for i, (bbox, text, prob) in enumerate(results):
-        if text.isdigit() and int(text) in master_data:
-            # สมมติว่าจำนวนอยู่ถัดไป 1 ช่อง
-            try:
-                qty = results[i+1][1]
-                found_data[int(text)] = qty
-            except:
-                pass
+    # ดึงข้อมูลจาก Sheet2 โดยสมมติว่าคอลัมน์แรกคือ "ลำดับที่" และคอลัมน์ที่ 3 คือ "จำนวน"
+    # คุณอาจต้องปรับเลข index ถ้าไฟล์ของคุณเปลี่ยนคอลัมน์
+    qty_map = dict(zip(df2.iloc[:, 0].astype(str), df2.iloc[:, 2]))
     
-    # สร้างตารางจาก Master + ข้อมูลที่พบ
-    df = pd.DataFrame(list(master_data.items()), columns=['ลำดับที่', 'รายการสินค้า'])
-    df['จำนวนที่สั่งซื้อ'] = df['ลำดับที่'].map(found_data).fillna(0)
+    # อัปเดตข้อมูลลง Sheet1
+    df1['จำนวนที่สั่งซื้อ'] = df1.iloc[:, 0].astype(str).map(qty_map)
     
-    st.dataframe(df)
+    # แสดงผล
+    st.subheader("ตารางรายการที่รวมแล้ว:")
+    st.dataframe(df1, use_container_width=True)
     
-    # สร้างปุ่มดาวน์โหลด
-    towrite = io.BytesIO()
-    df.to_excel(towrite, index=False)
-    towrite.seek(0)
-    st.download_button("📥 ดาวน์โหลด Excel", towrite, "Result.xlsx")
-""", unsafe_allow_html=True)
+    # ปุ่มดาวน์โหลด
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+        df1.to_excel(writer, index=False)
+    
+    st.download_button(
+        label="📥 ดาวน์โหลดไฟล์ Excel ผลลัพธ์",
+        data=buffer.getvalue(),
+        file_name="Final_Order.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
