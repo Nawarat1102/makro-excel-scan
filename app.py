@@ -1,33 +1,51 @@
 import streamlit as st
+import pandas as pd
 import easyocr
+import cv2
 import numpy as np
 from PIL import Image
+from io import BytesIO
 
 st.set_page_config(layout="wide")
-st.title("🔎 โหมดอ่านละเอียด: ดึงข้อมูลทุกตัวจากบิล")
+st.title("🛒 ระบบสแกน Makro (เวอร์ชันรวมร่าง: ชัดขึ้น + ลงตารางถูกต้อง)")
 
-uploaded_file = st.file_uploader("อัปโหลดรูปบิลเพื่ออ่านข้อมูลทั้งหมด", type=["jpg", "png"])
+# 1. โหลด Template
+@st.cache_data
+def load_template():
+    return pd.read_excel('n1.xlsx', sheet_name='Sheet1', header=6)
+
+df_master = load_template()
+reader = easyocr.Reader(['th', 'en'])
+
+uploaded_file = st.file_uploader("อัปโหลดรูปบิล", type=["jpg", "png"])
 
 if uploaded_file:
-    img = np.array(Image.open(uploaded_file))
+    # 2. ปรับภาพให้ชัดด้วย OpenCV ก่อนอ่าน
+    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+    img = cv2.imdecode(file_bytes, 1)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     
-    # 1. ตั้งค่า Reader ให้ทำงานละเอียดขึ้น
-    with st.spinner("🤖 กำลังอ่านบิลทุกบรรทัด..."):
-        reader = easyocr.Reader(['th', 'en'])
-        # detail=1 จะเก็บพิกัดของข้อความด้วย ช่วยให้เรียงลำดับถูก
-        results = reader.readtext(img, detail=1) 
+    with st.spinner("🤖 กำลังสแกนและจับคู่ข้อมูล..."):
+        # 3. อ่านภาพที่ปรับแล้ว
+        results = reader.readtext(thresh, detail=1)
         
-    st.subheader("ผลการอ่านข้อมูลทั้งหมด:")
-    
-    # 2. แสดงผลทุกบรรทัดที่อ่านได้
-    data_list = []
-    for (bbox, text, prob) in results:
-        # กรองเอาเฉพาะข้อความที่อ่านได้ชัดเจน (confidence > 0.3)
-        if prob > 0.3:
-            data_list.append(text)
-            st.write(f"• {text}")
+        # 4. Logic จับคู่: หา "ลำดับที่" แล้วเอา "จำนวน" มาลง
+        for i, (bbox, text, prob) in enumerate(results):
+            if text.isdigit() and 1 <= int(text) <= 50:
+                seq = int(text)
+                try:
+                    # พยายามหาเลขจำนวนที่อยู่ถัดไปในแถว
+                    qty = results[i+1][1]
+                    if qty.isdigit():
+                        df_master.loc[df_master['ลำดับที่'] == seq, 'จำนวนที่สั่งซื้อ'] = int(qty)
+                except: continue
 
-    # 3. ให้คุณตรวจสอบว่าครบไหม
-    if len(data_list) > 0:
-        st.success(f"อ่านพบทั้งหมด {len(data_list)} รายการ!")
-        st.write("ถ้าข้อมูลยังขาดตรงไหน หรืออ่านสลับบรรทัด บอกผมนะครับ ผมจะปรับ Logic การเรียงบรรทัดให้แม่นขึ้น!")
+    st.success("✅ อัปเดตข้อมูลเสร็จแล้ว!")
+    edited_df = st.data_editor(df_master, use_container_width=True)
+    
+    # 5. ปุ่มดาวน์โหลด
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        edited_df.to_excel(writer, index=False, sheet_name='Sheet1')
+    st.download_button("📥 ดาวน์โหลดไฟล์ที่อัปเดต", output.getvalue(), "n1_Updated.xlsx")
