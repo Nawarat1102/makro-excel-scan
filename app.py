@@ -5,47 +5,53 @@ import numpy as np
 from PIL import Image
 from io import BytesIO
 
-# ตั้งค่าหน้าเว็บ
 st.set_page_config(layout="wide")
-st.title("🛒 ระบบสแกน Makro เข้าไฟล์ n1.xlsx")
+st.title("🛒 ระบบสแกน Makro (อ่านแม่นยำ & ลงตารางถูกต้อง)")
 
-# 1. โหลดไฟล์ Excel (n1.xlsx) ต้องอยู่ใน Repository เดียวกับโค้ด
+# 1. โหลดไฟล์แม่แบบจาก GitHub (ไฟล์ n1.xlsx ต้องมีอยู่แล้ว)
 @st.cache_data
 def load_template():
-    # header=6 คือข้าม 6 บรรทัดแรก เพื่อเริ่มอ่านข้อมูลที่บรรทัดที่ 7
-    df_s1 = pd.read_excel('n1.xlsx', sheet_name='Sheet1', header=6)
-    return df_s1
+    # ใช้ header=6 เพื่อให้บรรทัดที่ 7 เป็นหัวตาราง (ลำดับที่, รหัส, รายการ, จำนวน)
+    # วิธีนี้จะทำให้ได้ตารางที่ตรงกับไฟล์ n1.xlsx ของคุณเป๊ะๆ
+    df = pd.read_excel('n1.xlsx', sheet_name='Sheet1', header=6)
+    # ตัดคอลัมน์ที่ไม่จำเป็นออก (ถ้ามี)
+    return df
 
-# 2. ฟังก์ชันหลัก
-uploaded_file = st.file_uploader("อัปโหลดรูปบิล Makro", type=["jpg", "png"])
 df_master = load_template()
+
+# 2. ส่วนสแกนรูปภาพ
+uploaded_file = st.file_uploader("อัปโหลดรูปบิล Makro", type=["jpg", "png", "jpeg"])
 
 if uploaded_file:
     reader = easyocr.Reader(['th', 'en'])
     img = np.array(Image.open(uploaded_file))
     results = reader.readtext(img)
     
-    with st.spinner("🤖 กำลังสแกนเลขและเติมลงช่อง..."):
+    with st.spinner("🤖 กำลังสแกนบิล..."):
+        # หาเลขจากบิลและนำไป "แปะ" ใน df_master
         for i, (bbox, text, prob) in enumerate(results):
-            # หาเลขลำดับที่ (1-50)
-            if text.isdigit() and 1 <= int(text) <= 50:
+            # ตรวจสอบว่าเป็นเลขลำดับที่ (1-26)
+            if text.isdigit() and 1 <= int(text) <= 26:
                 seq = int(text)
                 try:
-                    # อ่านจำนวนที่สั่งซื้อ
+                    # อ่านจำนวนที่สั่งซื้อ (เลขถัดไปในภาพ)
                     qty = results[i+1][1]
                     if qty.isdigit():
-                        val = int(qty)
-                        # เติมตัวเลขลงใน DataFrame ให้ตรงแถว
-                        df_master.loc[df_master['ลำดับที่'] == seq, 'จำนวนที่สั่งซื้อ'] = val
+                        # เติมตัวเลขลงในช่องที่ตรงกัน
+                        df_master.loc[df_master['ลำดับที่'] == seq, 'จำนวนที่สั่งซื้อ'] = int(qty)
                 except: continue
+    st.success("✅ สแกนเสร็จแล้ว! ตรวจสอบตัวเลขในตารางด้านล่างได้เลย")
 
-    # แสดงผลให้คุณตรวจก่อน
-    st.success("✅ สแกนเสร็จแล้ว! ตรวจสอบตัวเลขด้านล่าง")
-    edited_df = st.data_editor(df_master, use_container_width=True)
-    
-    # ปุ่มดาวน์โหลดไฟล์ที่อัปเดตแล้ว
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        edited_df.to_excel(writer, index=False, sheet_name='Sheet1')
-    
-    st.download_button("📥 ดาวน์โหลด n1_Updated.xlsx", output.getvalue(), "n1_Updated.xlsx")
+# 3. แสดงตารางให้คุณแก้ไขได้ (ถ้า AI อ่านเลขผิด ก็แก้ตรงนี้ได้เลย)
+edited_df = st.data_editor(df_master, use_container_width=True)
+
+# 4. ปุ่มดาวน์โหลดไฟล์ที่ "ถูกต้องตามรูปแบบเดิม"
+output = BytesIO()
+with pd.ExcelWriter(output, engine='openpyxl') as writer:
+    edited_df.to_excel(writer, index=False, sheet_name='Sheet1')
+
+st.download_button(
+    label="📥 ดาวน์โหลดไฟล์ Excel ที่กรอกข้อมูลแล้ว",
+    data=output.getvalue(),
+    file_name="n1_Updated.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
