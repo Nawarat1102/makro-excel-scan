@@ -1,18 +1,17 @@
 import streamlit as st
-import easyocr
+from paddleocr import PaddleOCR
 import numpy as np
 from PIL import Image
 
 st.set_page_config(layout="wide")
-st.title("🔎 โหมดอ่านข้อมูลดิบ (Raw Extraction)")
+st.title("🚀 PaddleOCR: ระบบอ่านบิลประสิทธิภาพสูง")
 
-# โหลดโมเดล
+# โหลดโมเดล (ใช้ภาษาไทย)
 @st.cache_resource
 def load_ocr():
-    # ใช้ค่า default เพื่อความเสถียรที่สุด
-    return easyocr.Reader(['th', 'en'])
+    return PaddleOCR(use_angle_cls=True, lang='th')
 
-reader = load_ocr()
+ocr = load_ocr()
 
 uploaded_file = st.file_uploader("อัปโหลดรูปบิล", type=["jpg", "png"])
 
@@ -20,22 +19,20 @@ if uploaded_file:
     image = Image.open(uploaded_file)
     img_np = np.array(image)
     
-    with st.spinner("กำลังอ่านข้อมูล..."):
-        # ใช้ detail=1 เพื่อดึงข้อมูลเชิงพิกัดมาเรียงใหม่
-        results = reader.readtext(img_np, detail=1)
+    with st.spinner("กำลังประมวลผลด้วยโมเดลประสิทธิภาพสูง..."):
+        # อ่านภาพ
+        result = ocr.ocr(img_np, cls=True)
         
-        # กรองผลลัพธ์ตามค่า Y (ความสูง) เพื่อเรียงบรรทัดจากบนลงล่าง
-        # วิธีนี้จะทำให้ลำดับตัวหนังสือไม่สลับไปมา
-        results.sort(key=lambda x: x[0][0][1])
-        
-        # แสดงผลลัพธ์ดิบ
-        st.subheader("ผลการอ่านข้อมูลทั้งหมด:")
-        
+        # จัดเรียงผลลัพธ์
         all_text = []
-        for (bbox, text, prob) in results:
-            all_text.append(text)
-            st.write(f"- {text}")
+        for line in result:
+            for word in line:
+                # word[1][0] คือข้อความ, word[1][1] คือความมั่นใจ (Confidence)
+                text = word[1][0]
+                conf = word[1][1]
+                all_text.append(f"{text} (ความมั่นใจ: {conf:.2f})")
+                st.write(f"• {text}")
         
-        # ให้คุณก๊อปปี้ไปวางใน Excel ได้ง่ายที่สุด
-        st.subheader("📋 ก๊อปปี้ข้อมูลไปวางใน Excel:")
-        st.text_area("ข้อมูลที่อ่านได้", value="\n".join(all_text), height=400)
+        st.subheader("📋 ข้อมูลดิบที่สกัดได้:")
+        st.text_area("ก๊อปปี้ไปวางใน Excel:", value="\n".join([w[1][0] for line in result for w in line]), height=300)
+        
