@@ -1,37 +1,39 @@
 import streamlit as st
-import pandas as pd
 import easyocr
-import re
-from PIL import Image
 import numpy as np
+from PIL import Image
 
-# โหลด OCR ครั้งเดียว
-reader = easyocr.Reader(['th', 'en'])
+st.set_page_config(layout="wide")
+st.title("👁️ โหมดอ่านดิบ: ดึงทุกตัวอักษรจากบิล")
+
+# โหลด OCR แบบไม่ต้องกรองอะไรเลย
+@st.cache_resource
+def load_ocr():
+    return easyocr.Reader(['th', 'en'])
+
+reader = load_ocr()
 
 uploaded_file = st.file_uploader("อัปโหลดรูปบิล", type=["jpg", "png"])
 
 if uploaded_file:
     image = Image.open(uploaded_file)
     img_np = np.array(image)
-    scan_result = reader.readtext(img_np, detail=0)
-    full_text = " ".join(scan_result)
-
-    # 1. ระบบตรวจจับประเภทบิล
-    if "MAKRO" in full_text.upper() or "แม็คโคร" in full_text:
-        st.info("Detected: บิล Makro")
-        # ใช้ Logic ดึงข้อมูล Makro (หาเลข 6 หลัก)
-        items = re.findall(r'(\d{6})\s+(.*?)\s+(\d+[\.,]\d{2})', full_text)
+    
+    with st.spinner("🤖 กำลังอ่านทุกบรรทัด..."):
+        # detail=1 เพื่อเอาตำแหน่งมาช่วยเรียงลำดับ
+        results = reader.readtext(img_np, detail=1)
         
-    elif "BIG C" in full_text.upper() or "บิ๊กซี" in full_text:
-        st.info("Detected: บิล Big C")
-        # ใช้ Logic ดึงข้อมูล Big C (อาจจะหาเลข 13 หลัก หรือรูปแบบอื่น)
-        items = re.findall(r'(\d{13})\s+(.*?)\s+(\d+)', full_text)
+        # เรียงลำดับจากบนลงล่างตามค่า Y
+        results.sort(key=lambda x: x[0][0][1])
         
-    else:
-        st.warning("⚠️ ไม่รู้จักรูปแบบบิลนี้ หรืออ่านชื่อร้านไม่ชัด")
-        items = []
-
-    # 2. แสดงผล
-    if items:
-        df = pd.DataFrame(items, columns=["Code", "Description", "Qty"])
-        st.dataframe(df)
+        st.subheader("📋 ข้อมูลดิบที่อ่านได้ (ทั้งหมด):")
+        
+        # แสดงผลแบบข้อความยาวๆ เพื่อให้คุณเช็คว่ามันอ่านครบไหม
+        full_text_list = []
+        for (bbox, text, prob) in results:
+            full_text_list.append(text)
+            st.text(f"อ่านได้: {text} (ความมั่นใจ: {prob:.2f})")
+        
+        st.divider()
+        st.subheader("💡 รวบยอดเป็นข้อความเดียว:")
+        st.text_area("ก๊อปปี้ไปวางใน Excel ได้เลย:", value="\n".join(full_text_list), height=300)
