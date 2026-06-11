@@ -3,59 +3,49 @@ import pandas as pd
 import easyocr
 import numpy as np
 from PIL import Image
-import openpyxl
+from io import BytesIO
 
-st.title("🛒 ระบบอัปเดตข้อมูล Makro")
+# ตั้งค่าหน้าเว็บ
+st.set_page_config(layout="wide")
+st.title("🛒 ระบบสแกน Makro เข้าไฟล์ n1.xlsx")
 
-FILE_PATH = 'n1.xlsx'
-
-# 1. โหลดข้อมูลแบบเจาะจงบรรทัด
+# 1. โหลดไฟล์ Excel (n1.xlsx) ต้องอยู่ใน Repository เดียวกับโค้ด
 @st.cache_data
-def load_data():
-    # Sheet1 เริ่มข้อมูลที่บรรทัด 7 (skiprows=6)
-    df1 = pd.read_excel(FILE_PATH, sheet_name='Sheet1', skiprows=6)
-    # Sheet2 เริ่มข้อมูลที่บรรทัด 5 (skiprows=4)
-    df2 = pd.read_excel(FILE_PATH, sheet_name='Sheet2', skiprows=4)
-    return df1, df2
+def load_template():
+    # header=6 คือข้าม 6 บรรทัดแรก เพื่อเริ่มอ่านข้อมูลที่บรรทัดที่ 7
+    df_s1 = pd.read_excel('n1.xlsx', sheet_name='Sheet1', header=6)
+    return df_s1
 
-try:
-    df_s1, df_s2 = load_data()
-except Exception as e:
-    st.error(f"โหลดไฟล์ไม่ได้: {e}")
-    st.stop()
+# 2. ฟังก์ชันหลัก
+uploaded_file = st.file_uploader("อัปโหลดรูปบิล Makro", type=["jpg", "png"])
+df_master = load_template()
 
-# 2. อ่านรูปภาพ
-uploaded_img = st.file_uploader("📸 อัปโหลดรูปใบสั่งสินค้า", type=["jpg", "png", "jpeg"])
-
-if uploaded_img:
-    img = np.array(Image.open(uploaded_img))
+if uploaded_file:
     reader = easyocr.Reader(['th', 'en'])
+    img = np.array(Image.open(uploaded_file))
     results = reader.readtext(img)
     
-    # ดึงค่ามาอัปเดต
-    found = False
-    for i, (bbox, text, prob) in enumerate(results):
-        if text.isdigit() and int(text) <= 50:
-            seq = int(text)
-            try:
-                # ลองอ่านตัวเลขถัดไป
-                qty = results[i+1][1]
-                if qty.isdigit():
-                    val = int(qty)
-                    # อัปเดตทั้ง 2 ชีต
-                    df_s1.loc[df_s1['ลำดับที่'] == seq, 'จำนวนที่สั่งซื้อ'] = val
-                    df_s2.loc[df_s2['ลำดับที่'] == seq, 'จำนวนที่สั่งซื้อ'] = val
-                    found = True
-            except: pass
-    
-    if found:
-        # 3. บันทึกทับไฟล์เดิม
-        with pd.ExcelWriter(FILE_PATH, engine='openpyxl') as writer:
-            df_s1.to_excel(writer, sheet_name='Sheet1', index=False)
-            df_s2.to_excel(writer, sheet_name='Sheet2', index=False)
-        st.success("✅ อัปเดตข้อมูลเรียบร้อย!")
-    else:
-        st.warning("⚠️ ไม่พบข้อมูลลำดับที่/จำนวนในภาพ โปรดตรวจสอบรูปภาพ")
+    with st.spinner("🤖 กำลังสแกนเลขและเติมลงช่อง..."):
+        for i, (bbox, text, prob) in enumerate(results):
+            # หาเลขลำดับที่ (1-50)
+            if text.isdigit() and 1 <= int(text) <= 50:
+                seq = int(text)
+                try:
+                    # อ่านจำนวนที่สั่งซื้อ
+                    qty = results[i+1][1]
+                    if qty.isdigit():
+                        val = int(qty)
+                        # เติมตัวเลขลงใน DataFrame ให้ตรงแถว
+                        df_master.loc[df_master['ลำดับที่'] == seq, 'จำนวนที่สั่งซื้อ'] = val
+                except: continue
 
-st.subheader("ตาราง Sheet1 (Master)")
-st.dataframe(df_s1)
+    # แสดงผลให้คุณตรวจก่อน
+    st.success("✅ สแกนเสร็จแล้ว! ตรวจสอบตัวเลขด้านล่าง")
+    edited_df = st.data_editor(df_master, use_container_width=True)
+    
+    # ปุ่มดาวน์โหลดไฟล์ที่อัปเดตแล้ว
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        edited_df.to_excel(writer, index=False, sheet_name='Sheet1')
+    
+    st.download_button("📥 ดาวน์โหลด n1_Updated.xlsx", output.getvalue(), "n1_Updated.xlsx")
