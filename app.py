@@ -4,11 +4,12 @@ import numpy as np
 from PIL import Image
 
 st.set_page_config(layout="wide")
-st.title("👁️ โหมดอ่านดิบ: ดึงทุกตัวอักษรจากบิล")
+st.title("🔎 โหมดอ่านข้อมูลดิบ (Raw Extraction)")
 
-# โหลด OCR แบบไม่ต้องกรองอะไรเลย
+# โหลดโมเดล
 @st.cache_resource
 def load_ocr():
+    # ใช้ค่า default เพื่อความเสถียรที่สุด
     return easyocr.Reader(['th', 'en'])
 
 reader = load_ocr()
@@ -19,21 +20,22 @@ if uploaded_file:
     image = Image.open(uploaded_file)
     img_np = np.array(image)
     
-    with st.spinner("🤖 กำลังอ่านทุกบรรทัด..."):
-        # detail=1 เพื่อเอาตำแหน่งมาช่วยเรียงลำดับ
+    with st.spinner("กำลังอ่านข้อมูล..."):
+        # ใช้ detail=1 เพื่อดึงข้อมูลเชิงพิกัดมาเรียงใหม่
         results = reader.readtext(img_np, detail=1)
         
-        # เรียงลำดับจากบนลงล่างตามค่า Y
+        # กรองผลลัพธ์ตามค่า Y (ความสูง) เพื่อเรียงบรรทัดจากบนลงล่าง
+        # วิธีนี้จะทำให้ลำดับตัวหนังสือไม่สลับไปมา
         results.sort(key=lambda x: x[0][0][1])
         
-        st.subheader("📋 ข้อมูลดิบที่อ่านได้ (ทั้งหมด):")
+        # แสดงผลลัพธ์ดิบ
+        st.subheader("ผลการอ่านข้อมูลทั้งหมด:")
         
-        # แสดงผลแบบข้อความยาวๆ เพื่อให้คุณเช็คว่ามันอ่านครบไหม
-        full_text_list = []
+        all_text = []
         for (bbox, text, prob) in results:
-            full_text_list.append(text)
-            st.text(f"อ่านได้: {text} (ความมั่นใจ: {prob:.2f})")
+            all_text.append(text)
+            st.write(f"- {text}")
         
-        st.divider()
-        st.subheader("💡 รวบยอดเป็นข้อความเดียว:")
-        st.text_area("ก๊อปปี้ไปวางใน Excel ได้เลย:", value="\n".join(full_text_list), height=300)
+        # ให้คุณก๊อปปี้ไปวางใน Excel ได้ง่ายที่สุด
+        st.subheader("📋 ก๊อปปี้ข้อมูลไปวางใน Excel:")
+        st.text_area("ข้อมูลที่อ่านได้", value="\n".join(all_text), height=400)
